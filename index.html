@@ -2,9 +2,10 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <!-- EwL iframe bridge: height + tour focus-scroll + hide bundler toast -->
+  <!-- EwL iframe bridge: height + tour focus-scroll + hide bundler toast + hide footer CTA (native button used instead) -->
   <script>(function(){var last=0;function hideErr(){var e=document.getElementById('__bundler_err');if(e){e.style.display='none';}}function measure(){var d=document,de=d.documentElement,b=d.body;if(b){b.style.minHeight='0';}var h=0;if(b)h=Math.max(h,b.scrollHeight,b.offsetHeight);if(de)h=Math.max(h,de.scrollHeight,de.offsetHeight);return h;}function tick(){hideErr();var h=measure();if(h>0&&h!==last){last=h;try{parent.postMessage({type:'ewl-learner-demo-height',height:h},'*');}catch(e){}}}setInterval(tick,200);window.addEventListener('load',tick);window.addEventListener('resize',tick);})();</script>
   <script>(function(){function send(){var ds=document.getElementsByTagName('div'),el=null,hint=null;for(var i=0;i<ds.length;i++){var z;try{z=getComputedStyle(ds[i]).zIndex;}catch(e){continue;}if(z==='42'){el=ds[i];break;}if(z==='41'&&!hint){hint=ds[i];}}var t=el||hint;if(!t)return;var r=t.getBoundingClientRect();if(!(r.width||r.height))return;try{parent.postMessage({type:'ewl-demo-focus',y:r.top+r.height/2},'*');}catch(e){}}setInterval(send,350);})();</script>
+  <script>(function(){function h(){var b=document.getElementsByTagName('button');for(var i=0;i<b.length;i++){if((b[i].textContent||'').trim()==='Register for classes'){var p=b[i].parentElement;if(p&&p.children.length===1){p.style.display='none';}else{b[i].style.display='none';}}}}setInterval(h,300);})();</script>
   <title>Bundled Page</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
