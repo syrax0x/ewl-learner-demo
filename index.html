@@ -2,30 +2,173 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <!-- EwL iframe height reporter: registered on window so it survives the runtime's
-       documentElement.replaceWith(); polls live document each tick and reports to parent. -->
+  <!-- EwL iframe height reporter + guided tour (window-registered so they survive the runtime's documentElement.replaceWith) -->
   <script>
   (function(){
-    var last = 0;
-    function measure(){
-      var d = document, de = d.documentElement, b = d.body;
-      if (b) { b.style.minHeight = '0'; }
-      var h = 0;
-      if (b)  h = Math.max(h, b.scrollHeight, b.offsetHeight);
-      if (de) h = Math.max(h, de.scrollHeight, de.offsetHeight);
-      return h;
-    }
-    function tick(){
-      var h = measure();
-      if (h > 0 && h !== last) {
-        last = h;
-        try { parent.postMessage({ type: 'ewl-learner-demo-height', height: h }, '*'); } catch (e) {}
-      }
-    }
-    setInterval(tick, 200);
-    window.addEventListener('load', tick);
-    window.addEventListener('resize', tick);
+    var last=0;
+    function measure(){var d=document,de=d.documentElement,b=d.body;if(b){b.style.minHeight='0';}var h=0;if(b)h=Math.max(h,b.scrollHeight,b.offsetHeight);if(de)h=Math.max(h,de.scrollHeight,de.offsetHeight);return h;}
+    function tick(){var h=measure();if(h>0&&h!==last){last=h;try{parent.postMessage({type:'ewl-learner-demo-height',height:h},'*');}catch(e){}}}
+    setInterval(tick,200);window.addEventListener('load',tick);window.addEventListener('resize',tick);
   })();
+  </script>
+  <script>
+  /* English with Laura — learner demo guided tour + interactive coachmarks.
+   Runs inside the hosted iframe, on top of the rendered app DOM.
+   - Auto-tour starts when the parent reports the section is in view.
+   - After the tour (or if the user clicks any control during it) it switches
+     to interactive mode: highlight one clickable at a time, advance on click. */
+(function () {
+  var P = 'ewltour-';
+  var ready = false, inview = false, started = false, mode = null, idx = 0, t = null, cancelH = null, clickH = null;
+
+  function findEl(txt) {
+    var els = document.body ? document.body.querySelectorAll('*') : [], best = null, bw = Infinity;
+    for (var i = 0; i < els.length; i++) {
+      var e = els[i], tn = e.tagName;
+      if (tn === 'SCRIPT' || tn === 'STYLE') continue;
+      if (e.id && e.id.indexOf(P) === 0) continue;
+      if (e.closest && e.closest('#' + P + 'layer')) continue;
+      var own = '';
+      for (var c = 0; c < e.childNodes.length; c++) { var n = e.childNodes[c]; if (n.nodeType === 3) own += n.textContent; }
+      if (own.indexOf(txt) > -1) { var r = e.getBoundingClientRect(); var a = r.width * r.height; if (a > 0 && a < bw) { bw = a; best = e; } }
+    }
+    return best;
+  }
+  function clickable(e) {
+    var c = e;
+    while (c && c !== document.body) {
+      if (c.tagName === 'BUTTON' || (c.getAttribute && c.getAttribute('role') === 'button')) return c;
+      try { if (getComputedStyle(c).cursor === 'pointer') return c; } catch (_) {}
+      c = c.parentElement;
+    }
+    return e;
+  }
+
+  var layer, dim, ring, tip;
+  function ui() {
+    if (layer) return;
+    var st = document.createElement('style'); st.id = P + 'css'; st.textContent =
+      '#' + P + 'layer{position:fixed;inset:0;z-index:2147483000;pointer-events:none;font-family:"DM Sans",-apple-system,system-ui,sans-serif}' +
+      '.' + P + 'ring{position:fixed;border-radius:16px;border:2px solid #00AFF0;transition:all .35s cubic-bezier(.4,0,.2,1);pointer-events:none}' +
+      '.' + P + 'ring.' + P + 'pulse{animation:' + P + 'pulse 1.3s ease-out infinite}' +
+      '@keyframes ' + P + 'pulse{0%{box-shadow:0 0 0 0 rgba(0,175,240,.45)}100%{box-shadow:0 0 0 18px rgba(0,175,240,0)}}' +
+      '.' + P + 'tip{position:fixed;max-width:300px;background:#fff;color:#1A1A1A;border:1px solid #E4EBF3;border-radius:14px;box-shadow:0 18px 44px -16px rgba(16,24,40,.45);padding:14px 16px;pointer-events:auto;transition:top .35s,left .35s;z-index:2147483002}' +
+      '.' + P + 'tip h4{margin:0 0 5px;font-size:15px;font-weight:700;color:#1A1A1A}' +
+      '.' + P + 'tip p{margin:0;font-size:13px;line-height:1.45;color:#6B7280}' +
+      '.' + P + 'tag{display:inline-block;background:#00AFF0;color:#fff;font-size:11px;font-weight:600;letter-spacing:.02em;padding:3px 10px;border-radius:100px;margin-bottom:7px}' +
+      '.' + P + 'bar{display:flex;align-items:center;justify-content:space-between;margin-top:11px}' +
+      '.' + P + 'dots{display:flex;gap:5px}' +
+      '.' + P + 'dot{width:6px;height:6px;border-radius:50%;background:#E4EBF3}' +
+      '.' + P + 'dot.' + P + 'on{background:#00AFF0}' +
+      '.' + P + 'skip{background:none;border:0;color:#9aa3af;font-size:12px;cursor:pointer;font-family:inherit;padding:2px 4px}';
+    document.head.appendChild(st);
+    layer = document.createElement('div'); layer.id = P + 'layer';
+    dim = document.createElement('div');
+    ring = document.createElement('div'); ring.className = P + 'ring';
+    tip = document.createElement('div'); tip.className = P + 'tip';
+    layer.appendChild(dim); layer.appendChild(ring); layer.appendChild(tip);
+    document.body.appendChild(layer);
+  }
+  function hideUI() { if (layer) { layer.remove(); layer = null; } var c = document.getElementById(P + 'css'); if (c) c.remove(); }
+
+  function tipHTML(tag, title, body, n, total) {
+    var d = ''; for (var i = 0; i < total; i++) d += '<span class="' + P + 'dot' + (i === n ? ' ' + P + 'on' : '') + '"></span>';
+    return '<span class="' + P + 'tag">' + tag + '</span><h4>' + title + '</h4><p>' + body + '</p>' +
+      '<div class="' + P + 'bar"><div class="' + P + 'dots">' + d + '</div><button class="' + P + 'skip" id="' + P + 'skip">Skip</button></div>';
+  }
+
+  function place(el, o) {
+    o = o || {}; var r = el.getBoundingClientRect(); var pad = o.pad == null ? 10 : o.pad;
+    var x = r.left - pad, y = r.top - pad, w = r.width + pad * 2, h = r.height + pad * 2;
+    dim.style.cssText = 'position:fixed;border-radius:16px;box-shadow:0 0 0 9999px rgba(16,24,40,.55);pointer-events:none;left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px;transition:all .35s cubic-bezier(.4,0,.2,1)';
+    ring.className = P + 'ring' + (o.pulse ? ' ' + P + 'pulse' : '');
+    ring.style.left = x + 'px'; ring.style.top = y + 'px'; ring.style.width = w + 'px'; ring.style.height = h + 'px';
+    tip.innerHTML = o.html;
+    var th = tip.offsetHeight || 130, tw = tip.offsetWidth || 280, vh = window.innerHeight;
+    var below = y + h + 12, top = (below + th < vh - 8) ? below : Math.max(8, y - th - 12);
+    var left = Math.min(Math.max(8, x), window.innerWidth - tw - 8);
+    tip.style.top = top + 'px'; tip.style.left = left + 'px';
+    var s = document.getElementById(P + 'skip'); if (s) s.onclick = finish;
+    try { parent.postMessage({ type: 'ewl-demo-scroll', y: r.top + r.height / 2 }, '*'); } catch (_) {}
+  }
+
+  var TOUR = [
+    { f: 'Words learned', pad: 8, tag: 'Guided tour', t: 'Your progress', b: 'Words learned, day streak, exercises done and your rank in the group — all at a glance.' },
+    { f: 'Your level', tag: 'Guided tour', t: 'Your level', b: 'Track your CEFR level and the target date to reach the next one.' },
+    { f: 'Your weekly practice plan', tag: 'Guided tour', t: 'Weekly plan', b: 'A balanced weekly mix across reading, listening, speaking, writing, vocabulary and grammar.' },
+    { f: 'New vocabulary to learn', tag: 'Guided tour', t: 'Word Boost', b: 'Build vocabulary fast with bite-size flashcards.' },
+    { f: 'Business Basics', tag: 'Guided tour', t: 'Interactive lessons', b: 'Real exercises — matching, multiple choice, fill-in, dictation and more.' }
+  ];
+  var CLICKS = [
+    { f: 'Start learning', t: 'Start a flashcard' },
+    { f: 'Leaderboard', t: 'Open the leaderboard' },
+    { f: 'Business Basics', t: 'Open a lesson' }
+  ];
+
+  function clearT() { if (t) { clearTimeout(t); t = null; } }
+
+  function start() { if (started) return; started = true; mode = 'tour'; idx = 0; ui(); arm(); showTour(); }
+
+  function showTour() {
+    clearT();
+    if (idx >= TOUR.length) { toClicks(); return; }
+    var s = TOUR[idx], el = findEl(s.f);
+    if (!el) { idx++; showTour(); return; }
+    place(el, { pad: s.pad, html: tipHTML(s.tag, s.t, s.b, idx, TOUR.length) });
+    t = setTimeout(function () { idx++; showTour(); }, 3800);
+  }
+
+  function arm() {
+    cancelH = function (e) {
+      if (mode !== 'tour') return;
+      if (e.target.closest && e.target.closest('#' + P + 'layer')) return;
+      var c = clickable(e.target);
+      if (c && c !== document.body) { toClicks(); }
+    };
+    document.addEventListener('click', cancelH, true);
+  }
+  function disarm() { if (cancelH) { document.removeEventListener('click', cancelH, true); cancelH = null; } }
+
+  function toClicks() { disarm(); clearT(); mode = 'clicks'; idx = 0; ui(); showClick(); }
+
+  function showClick() {
+    clearT();
+    if (clickH) { document.removeEventListener('click', clickH, true); clickH = null; }
+    if (idx >= CLICKS.length) { finish(); return; }
+    var s = CLICKS[idx], el = findEl(s.f);
+    if (!el) { idx++; showClick(); return; }
+    var ct = clickable(el);
+    place(ct, { pad: 8, pulse: true, html: tipHTML('Try it &#128072;', s.t, 'Click the highlighted area to continue.', idx, CLICKS.length) });
+    clickH = function (e) {
+      if (e.target.closest && e.target.closest('#' + P + 'layer')) return;
+      if (ct.contains(e.target)) { document.removeEventListener('click', clickH, true); clickH = null; idx++; setTimeout(showClick, 450); }
+    };
+    document.addEventListener('click', clickH, true);
+  }
+
+  function finish() { clearT(); disarm(); if (clickH) { document.removeEventListener('click', clickH, true); clickH = null; } hideUI(); started = true; mode = 'done'; }
+
+  window.addEventListener('resize', function () {
+    if (!layer || mode === 'done') return;
+    var arr = mode === 'tour' ? TOUR : CLICKS, s = arr[idx]; if (!s) return;
+    var el = findEl(s.f); if (!el) return;
+    if (mode === 'tour') place(el, { pad: s.pad, html: tipHTML(s.tag, s.t, s.b, idx, TOUR.length) });
+    else { var ct = clickable(el); place(ct, { pad: 8, pulse: true, html: tipHTML('Try it &#128072;', s.t, 'Click the highlighted area to continue.', idx, CLICKS.length) }); }
+  });
+
+  function appReady() { return !!findEl('Your weekly practice plan'); }
+  var poll = setInterval(function () {
+    if (appReady()) {
+      clearInterval(poll); ready = true;
+      try { parent.postMessage({ type: 'ewl-demo-ready' }, '*'); } catch (_) {}
+      if (inview || window.self === window.top) { setTimeout(start, window.self === window.top ? 800 : 0); }
+    }
+  }, 300);
+  window.addEventListener('message', function (e) {
+    var d = e.data; if (d && d.type === 'ewl-demo-in-view') { inview = true; if (ready) start(); }
+  });
+})();
+
   </script>
   <title>Bundled Page</title>
   <style>
